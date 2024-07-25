@@ -80,6 +80,14 @@ class IdempotentCommutativeMonoid:
         """Count the number of submonoids."""
         return sum(1 for _ in self.enumerate_submonoids())
 
+    def grade_sequence(self) -> list[int]:
+        """Return the count of submonoids of each grade."""
+        counts = [0 for _ in range(len(self.elements) + 1)]
+        for submagma in self.enumerate_submonoids():
+            counts[len(submagma)] += 1
+
+        return counts
+
     def __mul__(self, other):
         """Compute the product monoid."""
         if not isinstance(other, IdempotentCommutativeMonoid):
@@ -110,33 +118,101 @@ def lattice(dims):
 
     return ret
 
-@lru_cache
-def transition(a: IdempotentCommutativeMonoid, b: IdempotentCommutativeMonoid) -> int:
-    """A is a submagma of P."""
-
-    ret = 0
-    for u in a.enumerate_ideals():
-        if u.union(b.elements) == a.elements:
-            ret += 1
-
-    return ret
-
 def partitioned_sum(m: int, p: IdempotentCommutativeMonoid):
     ret = 0
     for a in lattice.enumerate_submagmas():
         ret += c(m, p, IdempotentCommutativeMonoid(a, p.mult, None))
 
+@lru_cache
+def transition(a: IdempotentCommutativeMonoid, b: frozenset) -> int:
+    """B is a submagma of A."""
+
+    ret = 0
+    for u in a.enumerate_ideals():
+        if u.union(b) == a.elements:
+            ret += 1
+
+    return ret
+
 def make_matrix(lattice: IdempotentCommutativeMonoid):
     return [
         [transition(
-            IdempotentCommutativeMonoid(b, lattice.mult, None),
-            IdempotentCommutativeMonoid(a, lattice.mult, None)
-        ) for b in lattice.enumerate_submonoids()]
-    for a in lattice.enumerate_submonoids()]
+            IdempotentCommutativeMonoid(a, lattice.mult, None),
+            b
+        ) for a in lattice.enumerate_submonoids()]
+    for b in lattice.enumerate_submonoids()]
 
 def make_matrix_from_dims(dims: list):
     return make_matrix(lattice(dims))
 
+def sub_nx1(k: int, S: frozenset, l: int):
+    counter = 0
+    elements = set()
+    while counter < l:
+        elements.add((counter, 0))
+        counter += 1
+
+    while counter < k + l:
+        elements.add((counter, 1))
+        if counter - l in S:
+            elements.add((counter, 0))
+        counter += 1
+
+    def pair_max(a, b):
+        return (max(a[0], b[0]), max(a[1], b[1]))
+
+    return IdempotentCommutativeMonoid(frozenset(elements), pair_max, None)
+
+def print_nx1(elements):
+    if not elements:
+        return "∅"
+    l = max(a for a, _ in elements)
+    s = [" " for _ in range (l * 2 + 1)]
+    s2 = [" " for _ in range (l * 2 + 1)]
+    for a, b in elements:
+        if b == 1:
+            s[a * 2] = "·"
+        else:
+            s2[a * 2] = "·"
+
+    return "".join(s) + "\n" + "".join(s2)
+
+def iso_class(elements):
+    if not elements:
+        return (0, frozenset(), 0)
+
+    k_set = {a for a, b in elements if b == 1}
+    s_set = {a for a, b in elements if b == 0 and a in k_set}
+    l_set = {a for a, b in elements if b == 0 and a not in k_set}
+    l = len(l_set)
+    k = len(k_set)
+    s = frozenset(a - min(k_set) for a in s_set) if k_set else frozenset()
+
+    return (k, s, l)
+
+
+
+def iso_transition(a: IdempotentCommutativeMonoid, k, S, l) -> int:
+    """B is a submagma of A."""
+    ret = 0
+    for b in a.enumerate_submagmas():
+        if (k, S, l) == iso_class(b):
+            for u in a.enumerate_ideals():
+                if u.union(b) == a.elements:
+                    ret += 1
+    return ret
+
+def enumerate_subisos(k, S, l):
+    for k2 in range(k + 1):
+        for S2 in powerset(range(k2)):
+            for l2 in range(k + len(S) + 1):
+                yield (k2, S2, l2)
+
 if __name__ == "__main__":
-    l = lattice(map(int, argv[1:]))
-    print(l.count_submagmas())
+    a = sub_nx1(4, {0, 3}, 2)
+    print(print_nx1(a.elements))
+    for iso in enumerate_subisos(*iso_class(a.elements)):
+        if (i := iso_transition(a, *iso)) > 0:
+            print("------")
+            print(iso[0], set(iso[1]), iso[2])
+            print(i)
